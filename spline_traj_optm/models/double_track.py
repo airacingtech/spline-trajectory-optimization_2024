@@ -194,8 +194,9 @@ def add_constraints(model_dict, opti, x, u, t, xip1, uip1,bank, race_track=None,
                     (Fx_fl + Fx_fr) * ca.sin(delta) + (Fy_fl + Fy_fr) * ca.cos(delta)))
 
     # static actuator constraint
-    opti.subject_to(v * fd <= Pmax)
-    opti.subject_to(v >= 1.0)
+    opti.subject_to(ca.sqrt(v ** 2 + (80 * 0.1) ** 2) * ca.sqrt(fd ** 2 + (Fd_max * 0.1) ** 2) <= Pmax)
+    opti.subject_to(v >= 0.0)
+    # opti.subject_to(opti.bounded(10.0, v, 100.0))
     # opti.subject_to(opti.bounded(0.0, fd, Fd_max))
     # opti.subject_to(opti.bounded(Fb_max, fb, 0.0))
     # opti.subject_to(ca.power(fd * fb, 2) <= 1.0)
