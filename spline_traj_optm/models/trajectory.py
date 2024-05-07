@@ -37,18 +37,20 @@ class Trajectory:
     RIGHT_BOUND_X = 11
     RIGHT_BOUND_Y = 12
     BANK = 13
-    LON_ACC = 14
-    LAT_ACC = 15
-    YAW_RATE = 16
-    VY = 17
-    TIME = 18
-    IDX = 19
-    ITERATION_FLAG = 20
+    NORM_X = 14
+    NORM_Y = 15
+    LON_ACC = 16
+    LAT_ACC = 17
+    YAW_RATE = 18
+    VY = 19
+    TIME = 20
+    IDX = 21
+    ITERATION_FLAG = 22
 
     def __init__(self, num_point: int, ttl_num: int = 0, origin=None) -> None:
         self.ttl_num = ttl_num
         self.origin = origin
-        self.points = np.zeros((num_point, 21), dtype=np.float64)
+        self.points = np.zeros((num_point, 23), dtype=np.float64)
         self.points[:, Trajectory.IDX] = np.arange(0, len(self.points), 1)
         self.points[:, Trajectory.ITERATION_FLAG] = -1
 
