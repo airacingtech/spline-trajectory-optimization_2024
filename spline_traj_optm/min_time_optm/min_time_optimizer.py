@@ -123,7 +123,7 @@ def set_up_double_track_problem(params):
     cost_function = min_time_cost(T)
     for i in range(N):
         cost_function += ca.sumsqr(U[i, :]) * 1e-4
-        cost_function += ca.sumsqr(U[i, :] - U[i-1, :]) * 1e-1
+        cost_function += ca.sumsqr(U[i, :] - U[i-1, :]) * 1e-3
         # cost_function -= 10.0 * ca.sumsqr(X[i, 4] * ca.sin(X[i, 5])) # incentivize slip
 
     bank_list = []

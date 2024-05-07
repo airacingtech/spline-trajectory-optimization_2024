@@ -17,15 +17,15 @@ def get_trajectory_array(traj_resource):
 
     if isinstance(traj_file, str):
         num_columns = count_columns(traj_file)
-        print(num_columns)
+        # print(num_columns)
     else:
         with as_file(traj_file) as f:
             num_columns = count_columns(f)
 
     cols_to_use = (0, 1, 3) if num_columns >= 4 else (0, 1)
+    cols_to_use = (0, 1)
 
-
-    print(cols_to_use)
+    # print(cols_to_use)
     if isinstance(traj_file, str):
         return np.loadtxt(traj_file, dtype=np.float64, delimiter=',', skiprows=1, usecols=cols_to_use)
     else:
