@@ -13,12 +13,36 @@ import spline_traj_optm.min_time_optm.min_time_optimizer as optm
 from spline_traj_optm.models.vehicle import VehicleParams, Vehicle
 from spline_traj_optm.simulator.simulator import Simulator
 
+def substitute_variables(value, variables):
+    if isinstance(value, str):
+        for var, var_value in variables.items():
+            value = value.replace(f"$({var})", var_value)
+    elif isinstance(value, dict):
+        for key, val in value.items():
+            value[key] = substitute_variables(val, variables)
+    elif isinstance(value, list):
+        for i, val in enumerate(value):
+            value[i] = substitute_variables(val, variables)
+    return value
+
+
+
 def main():
     param_file = "traj_opt_double_track.yaml"
     if not os.path.exists(param_file):
         raise FileNotFoundError(f"{param_file} does not exist.")
     with open(param_file, "r") as f:
         params = yaml.safe_load(f)
+        # Define the variables for substitution
+        # print all environment variables
+        print(os.environ)
+        variables = {
+            "ttl_dir": os.environ.get("TTL_DIR"),
+        }
+        if variables["ttl_dir"] is None:
+            raise ValueError("Please set the environment variable ttl_dir")
+        # Substitute the variables in the loaded data
+        params = substitute_variables(params, variables)
     
     interval = params["interval"]
     race_track = RaceTrack(
