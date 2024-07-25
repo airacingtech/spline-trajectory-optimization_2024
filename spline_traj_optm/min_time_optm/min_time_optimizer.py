@@ -1,4 +1,7 @@
 import casadi as ca
+import matplotlib.pyplot as plt
+import numpy as np
+
 
 from spline_traj_optm.models.trajectory import Trajectory
 import spline_traj_optm.models.dynamic_bicycle as dyn
@@ -8,7 +11,7 @@ import spline_traj_optm.utils.integrator as integrator
 
 
 def min_time_cost(T):
-    return ca.sum1(T)
+    return ca.sumsqr(T)
 
 
 def set_up_bicycle_problem(params):
@@ -71,7 +74,7 @@ def set_up_bicycle_problem(params):
         acc = ca.power(lat_acc, 2) + ca.power(lon_acc, 2)
         opti.subject_to(acc <= model["acc_max"] ** 2)
 
-        # initial condition
+        # initial conditiondyn
         opti.set_initial(xi, ca.DM([0.0, 0.0, Yaws[i-1], 0.0, 1.0]))
         opti.set_initial(ui, 0.0)
         opti.set_initial(ti, 1.0)
@@ -108,6 +111,7 @@ def set_up_double_track_problem(params):
     # Yaws = ca.DM(traj_d[:, Trajectory.YAW])
     Velocities = ca.DM(traj_d[:, Trajectory.SPEED])
     Times = ca.DM(traj_d[:, Trajectory.TIME])
+    Bank_Angles = ca.DM(traj_d[:, Trajectory.BANK])
     BoundL = race_track.left_intp(S0)
     BoundR = race_track.right_intp(S0)
     scale_x = ca.DM([1.0, params["average_track_width"], 1.0, 1.0, 0.5, params["speed_cap"]]).T
@@ -119,10 +123,19 @@ def set_up_double_track_problem(params):
     cost_function = min_time_cost(T)
     for i in range(N):
         cost_function += ca.sumsqr(U[i, :]) * 1e-4
-        cost_function += ca.sumsqr(U[i, :] - U[i-1, :]) * 1e-1
-    opti.minimize(cost_function)
+        cost_function += ca.sumsqr(U[i, :] - U[i-1, :]) * 1e-3
+        # cost_function -= 10.0 * ca.sumsqr(X[i, 4] * ca.sin(X[i, 5])) # incentivize slip
 
+    bank_list = []
+    bank_intp_list = []
     for i in range(N):
+        bank = Bank_Angles[i,:] 
+        bank_list.append(bank)
+        # print(bank.shape)
+        # print("bank",bank)
+        # print("bank intp", race_track.bank_intp(S0[i-1]))
+        # print(race_track.bank_intp(S0[i-1]).shape)
+        bank_intp_list.append(race_track.bank_intp(S0[i-1]))
         xi = X[i-1, :] * scale_x + X_OFFSET[i-1, :]
         xip1 = X[i, :] * scale_x + X_OFFSET[i, :]
         ui = U[i-1, :] * scale_u
@@ -133,12 +146,14 @@ def set_up_double_track_problem(params):
         opti.subject_to(xi[0] == X_OFFSET[i-1, 0])
         dr = BoundR[i-1]
         dl = BoundL[i-1]
-        margin = model["vehicle_width"] / 2.0 + model["safety_margin"]
-        assert dr + margin < dl - margin, f"Track width must be wider than vehicle width plus 2 * safety margin at point {i}."
-        opti.subject_to(opti.bounded(dr + margin, xi[1], dl - margin))
+        marginR = model["vehicle_width"] / 2.0 + model["safety_margin_r"]
+        marginL = model["vehicle_width"] / 2.0 + model["safety_margin_l"]
+
+        assert dr + marginR < dl - marginL, f"Track width must be wider than vehicle width plus 2 * safety margin at point {i}."
+        opti.subject_to(opti.bounded(dr + marginR, xi[1], dl - marginL))
 
         # model constraints
-        dt_dyn.add_constraints(model, opti, xi, ui, ti, xip1, uip1, race_track, race_track.curvature_intp(S0[i-1]))
+        dt_dyn.add_constraints(model, opti, xi, ui, ti, xip1, uip1,bank, race_track, race_track.curvature_intp(S0[i-1]))
 
         # time constraint
         opti.subject_to(0.0 <= ti)
@@ -154,6 +169,8 @@ def set_up_double_track_problem(params):
             opti.set_initial(X[i-1, :] * scale_x, params["x0"][i-1, :] - X_OFFSET[i-1, :])
             opti.set_initial(ui * scale_u, params["u0"][i-1, :])
             opti.set_initial(ti * scale_t, params["t0"][i-1, :])
+
+    opti.minimize(cost_function)
 
     print_lvl = 5 if params["verbose"] else 0
     p_opts = {"expand": True}

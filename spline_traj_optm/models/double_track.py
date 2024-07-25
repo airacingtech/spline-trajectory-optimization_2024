@@ -7,7 +7,7 @@ import spline_traj_optm.utils.utils as utils
 GRAVITY = 9.8
 
 
-def dynamics(model_dict, x, u, race_track=None, k=None):
+def dynamics(model_dict, x, u,bank, race_track=None, k=None):
     px = x[0]
     py = x[1]
     phi = x[2]  # yaw in frenet frame or global frame
@@ -18,6 +18,8 @@ def dynamics(model_dict, x, u, race_track=None, k=None):
     fb = u[0] * (ca.tanh(-u[0]) * 0.5 + 0.5)  # brake force
     delta = u[2]  # front wheel angle
     gamma_y = u[3]  # lateral load transfer
+    vx = v * ca.cos(beta)
+    vy = v * ca.sin(beta)
 
     kd_f = model_dict["kd_f"]  # front drive force bias (rear is 1 - kd_f)
     kb_f = model_dict["kb_f"]  # front brake force bias (rear is 1 - kb_f)
@@ -45,44 +47,54 @@ def dynamics(model_dict, x, u, race_track=None, k=None):
     Fz0_f = model_dict["Fz0_f"]  # magic formula Fz0 - front
     eps_f = model_dict["eps_f"]  # extended magic formula epsilon - front
     Br = model_dict["Br"]  # magic formula B - rear
-    Cr = model_dict["Cr"]  # magic formula C - rear
+    Cr = model_dict["Cr"]  # magic formula C - rear 
     Er = model_dict["Er"]  # magic formula E - rear
     Fz0_r = model_dict["Fz0_r"]  # magic formula Fz0 - rear
     eps_r = model_dict["eps_r"]  # extended magic formula epsilon - rear
 
     # longitudinal tyre force Fx (eq. 4a, 4b)
     # TODO consider differential
-    Fx_f = 0.5 * kd_f * fd + 0.5 * kb_f * fb - 0.5 * fr * m * GRAVITY * lr / l
+
+    
+    N = m * GRAVITY * ca.cos(bank) - (m * (v **2) * (k)) * (ca.sin(bank)) #normal force
+
+    Fx_f = 0.5 * kd_f * fd + 0.5 * kb_f * fb - 0.5 * fr * N * lr / l
     Fx_fl = Fx_f
     Fx_fr = Fx_f
     Fx_r = 0.5 * (1 - kd_f) * fd + 0.5 * (1 - kb_f) * \
-        fb - 0.5 * fr * m * GRAVITY * lf / l
+        fb - 0.5 * fr *  N * lf / l
     Fx_rl = Fx_r
     Fx_rr = Fx_r
 
     # longitudinal acceleration (eq. 9)
-    ax = (fd + fb - 0.5 * cd * A * v ** 2 - fr * m * GRAVITY) / m
+    ax = (fd + fb - 0.5 * cd * A * v ** 2 - fr * N) / m
 
     # vertical tyre force Fz (eq. 7a, 7b)
-    Fz_f = 0.5 * m * GRAVITY * lr / \
+    Fz_f = 0.5 * N * lr / \
         (lf + lr) - 0.5 * hcog / (lf + lr) * \
         m * ax + 0.25 * cl_f * rho * A * v ** 2
     Fz_fl = Fz_f - kroll_f * gamma_y
     Fz_fr = Fz_f + kroll_f * gamma_y
-    Fz_r = 0.5 * m * GRAVITY * lr / \
+    Fz_r = 0.5 * N* lr / \
         (lf + lr) + 0.5 * hcog / (lf + lr) * \
         m * ax + 0.25 * cl_r * rho * A * v ** 2
     Fz_rl = Fz_r - (1 - kroll_f) * gamma_y
     Fz_rr = Fz_r + (1 - kroll_f) * gamma_y
 
     # tyre sideslip angles alpha (eq. 6a, 6b)
-    a_fl = delta - ca.arctan((lf * omega + v * ca.sin(beta)) /
-                             (v * ca.cos(beta) - 0.5 * twf * omega))
-    a_fr = delta - ca.arctan((lf * omega + v * ca.sin(beta)) /
-                             (v * ca.cos(beta) + 0.5 * twf * omega))
-    a_rl = ca.arctan((lr * omega - v * ca.sin(beta)) /
+    # a_fl = delta - ca.arctan((lf * omega + v * ca.sin(beta)) /
+    #                          (v * ca.cos(beta) - 0.5 * twf * omega))
+    # a_fr = delta - ca.arctan((lf * omega + v * ca.sin(beta)) /
+    #                          (v * ca.cos(beta) + 0.5 * twf * omega))
+    
+    a_fl = -ca.atan2((vy + lf * omega) * ca.cos(delta) - vx * ca.sin(delta),
+                    vx * ca.cos(delta) + (vy + lf * omega) * ca.sin(beta) - 0.5 * twf * omega)
+    a_fr = -ca.atan2((vy + lf * omega) * ca.cos(delta) - vx * ca.sin(delta),
+                    vx * ca.cos(delta) + (vy + lf * omega) * ca.sin(beta) + 0.5 * twf * omega)
+
+    a_rl = ca.atan2((lr * omega - v * ca.sin(beta)),
                      (v * ca.cos(beta) - 0.5 * twr * omega))
-    a_rr = ca.arctan((lr * omega - v * ca.sin(beta)) /
+    a_rr = ca.atan2((lr * omega - v * ca.sin(beta)),
                      (v * ca.cos(beta) + 0.5 * twr * omega))
 
     # lateral tyre force Fy (eq. 5)
@@ -101,9 +113,10 @@ def dynamics(model_dict, x, u, race_track=None, k=None):
     Fy_rl = mu * Fz_rl * ca.sin(Cr * ca.arctan(Br * a_rl))
     Fy_rr = mu * Fz_rr * ca.sin(Cr * ca.arctan(Br * a_rr))
 
+     
     # dynamics (eq. 3a, 3b, 3c)
     v_dot = 1 / m * ((Fx_rl + Fx_rr) * ca.cos(beta) + (Fx_fl + Fx_fr) * ca.cos(delta - beta)
-                     + (Fy_rl + Fy_rr) * ca.sin(beta) -
+                     + (Fy_rl + Fy_rr - m * GRAVITY * (ca.sin(bank))) * ca.sin(beta) -
                      (Fy_fl + Fy_fr) * ca.sin(delta - beta)
                      - 0.5 * cd * rho * A * v ** 2 * ca.cos(beta))
     beta_dot = -omega + 1 / (m * v) * (-(Fx_rl + Fx_rr) * ca.sin(beta) + (Fx_fl + Fx_fr) * ca.sin(delta - beta)
@@ -140,7 +153,7 @@ def nu():
     return 4
 
 
-def add_constraints(model_dict, opti, x, u, t, xip1, uip1, race_track=None, k=None):
+def add_constraints(model_dict, opti, x, u, t, xip1, uip1,bank, race_track=None, k=None):
     # tyre constraints
     v = x[5]  # velocity magnitude
     fd = u[0] * (ca.tanh(u[0]) * 0.5 + 0.5)  # drive force
@@ -148,7 +161,7 @@ def add_constraints(model_dict, opti, x, u, t, xip1, uip1, race_track=None, k=No
     delta = u[2]  # front wheel angle
     gamma_y = u[3]  # lateral load transfer
 
-    twf = model_dict["twf"]  # front track width
+    twf = model_dict["twf"]  # front track widthS
     twr = model_dict["twr"]  # rear track width
     delta_max = model_dict["delta_max"]  # max front wheel angle
 
@@ -163,15 +176,17 @@ def add_constraints(model_dict, opti, x, u, t, xip1, uip1, race_track=None, k=No
     Tb = model_dict["Tb"]  # brake time constant
     Tdelta = model_dict["Tdelta"]  # steering time constant
 
+    bank = bank
+
     # dynamics constraint
     temp = ca.MX(xip1)
     temp[0, 2] = utils.align_yaw(temp[0, 2], x[0, 2])
     if race_track is not None:
         temp[0, 0] = utils.align_abscissa(temp[0, 0], x[0, 0], race_track.center_s.get_length())
-    f1, tyres = dynamics(model_dict, x, u, race_track, k)
-    f2, _ = dynamics(model_dict, temp, u, race_track, k)
+    f1, tyres = dynamics(model_dict, x, u,bank, race_track, k)
+    f2, _ = dynamics(model_dict, temp, u,bank, race_track, k)
     xm = 0.5 * (x + temp) + (t / 8.0) * (f1.T - f2.T)
-    fm, _ = dynamics(model_dict, xm, u, race_track, k)
+    fm, _ = dynamics(model_dict, xm, u,bank, race_track, k)
     opti.subject_to(x + (t / 6.0) * (f1.T + 4 * fm.T + f2.T) - temp == 0)
 
     Fxij, Fyij, Fzij = tyres
@@ -187,8 +202,8 @@ def add_constraints(model_dict, opti, x, u, t, xip1, uip1, race_track=None, k=No
                     (Fx_fl + Fx_fr) * ca.sin(delta) + (Fy_fl + Fy_fr) * ca.cos(delta)))
 
     # static actuator constraint
-    opti.subject_to(v * fd <= Pmax)
-    opti.subject_to(v >= 1.0)
+    opti.subject_to(ca.sqrt(v ** 2 + (5.0 * 0.1) ** 2) * ca.sqrt(fd ** 2 + (Fd_max * 0.1) ** 2) <= Pmax)
+    opti.subject_to(v >= 0.2)
     # opti.subject_to(opti.bounded(0.0, fd, Fd_max))
     # opti.subject_to(opti.bounded(Fb_max, fb, 0.0))
     # opti.subject_to(ca.power(fd * fb, 2) <= 1.0)

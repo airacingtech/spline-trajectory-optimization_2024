@@ -37,16 +37,20 @@ class Trajectory:
     RIGHT_BOUND_X = 11
     RIGHT_BOUND_Y = 12
     BANK = 13
-    LON_ACC = 14
-    LAT_ACC = 15
-    TIME = 16
-    IDX = 17
-    ITERATION_FLAG = 18
+    NORM_X = 14
+    NORM_Y = 15
+    LON_ACC = 16
+    LAT_ACC = 17
+    YAW_RATE = 18
+    VY = 19
+    TIME = 20
+    IDX = 21
+    ITERATION_FLAG = 22
 
     def __init__(self, num_point: int, ttl_num: int = 0, origin=None) -> None:
         self.ttl_num = ttl_num
         self.origin = origin
-        self.points = np.zeros((num_point, 19), dtype=np.float64)
+        self.points = np.zeros((num_point, 23), dtype=np.float64)
         self.points[:, Trajectory.IDX] = np.arange(0, len(self.points), 1)
         self.points[:, Trajectory.ITERATION_FLAG] = -1
 
@@ -210,17 +214,31 @@ class Trajectory:
 
 
 class BSplineTrajectory:
-    def __init__(self, coordinates: np.ndarray, s: float, k: int):
-        assert coordinates.shape[0] >= 3 and coordinates.shape[1] == 2 and len(
-            coordinates.shape) == 2, "coordinates should be N * 2"
-        # close the loop
-        coordinates_close_loop = np.vstack(
-            [coordinates, coordinates[0, np.newaxis, :]])
-        tck, u = interpolate.splprep(
-            [coordinates_close_loop[:, 0], coordinates_close_loop[:, 1]], s=s, per=True, k=k)
-        self._spl_x = BSpline(tck[0], tck[1][0], tck[2])
-        self._spl_y = BSpline(tck[0], tck[1][1], tck[2])
-        self._length = self.__get_section_length(0.0, 1.0)
+    def __init__(self, coordinates: np.ndarray, s: float, k: int, bank_angles):
+        self.has_bank = bank_angles
+        if not self.has_bank:
+            assert coordinates.shape[0] >= 3 and coordinates.shape[1] == 2 and len(
+                coordinates.shape) == 2, "coordinates should be N * 2"
+            # close the loop
+            coordinates_close_loop = np.vstack(
+                [coordinates, coordinates[0, np.newaxis, :]])
+            tck, u = interpolate.splprep(
+                [coordinates_close_loop[:, 0], coordinates_close_loop[:, 1]], s=s, per=True, k=k)
+            self._spl_x = BSpline(tck[0], tck[1][0], tck[2])
+            self._spl_y = BSpline(tck[0], tck[1][1], tck[2])
+            self._length = self.__get_section_length(0.0, 1.0)
+        else:
+            assert coordinates.shape[0] >= 3 and coordinates.shape[1] == 3 and len(
+                coordinates.shape) == 2, "coordinates should be N * 3 with Bank"
+            # close the loop
+            coordinates_close_loop = np.vstack(
+                [coordinates, coordinates[0, np.newaxis, :]])
+            tck, u = interpolate.splprep(
+                [coordinates_close_loop[:, 0], coordinates_close_loop[:, 1], coordinates_close_loop[:, 2]], s=s, per=True, k=k)
+            self._spl_x = BSpline(tck[0], tck[1][0], tck[2])
+            self._spl_y = BSpline(tck[0], tck[1][1], tck[2])
+            self._spl_bank = BSpline(tck[0], tck[1][2], tck[2])
+            self._length = self.__get_section_length(0.0, 1.0)
 
     def __integrate_length(self, t: float):
         return np.sqrt(interpolate.splev(t, self._spl_x, der=1) ** 2 + interpolate.splev(t, self._spl_y, der=1) ** 2)
@@ -277,6 +295,9 @@ class BSplineTrajectory:
 
         traj[:, Trajectory.X] = interpolate.splev(ts, self._spl_x)
         traj[:, Trajectory.Y] = interpolate.splev(ts, self._spl_y)
+        if self.has_bank:
+            traj[:, Trajectory.BANK] = interpolate.splev(ts, self._spl_bank)
+
         traj[:, Trajectory.YAW] = self.__get_yaw(ts)
         traj[:, Trajectory.CURVATURE] = self.__get_turn_radius(ts)
 
@@ -339,9 +360,9 @@ def save_ttl(ttl_path: str, trajectory: Trajectory):
                 str(row[Trajectory.RIGHT_BOUND_X]),
                 str(row[Trajectory.RIGHT_BOUND_Y]),
                 str(row[Trajectory.BANK]),
-                str(row[Trajectory.LON_ACC]),
-                str(row[Trajectory.LAT_ACC]),
-                str(row[Trajectory.TIME]),
+                # str(row[Trajectory.LON_ACC]),
+                # str(row[Trajectory.LAT_ACC]),
+                # str(row[Trajectory.TIME]),
             ]
             f.writelines([','.join(vals) + '\n'])
         np.apply_along_axis(save_row, 1, trajectory.points)
